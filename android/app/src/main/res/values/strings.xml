@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Plasma Files</string>
+    <string name="permission_rationale">Plasma Files needs storage access to browse your files.</string>
+</resources>
