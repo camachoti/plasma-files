@@ -30,7 +30,7 @@ enum class Density     { COMPACT, COZY, REGULAR }
 
 data class Tab(val id: Int, val path: String)
 data class NavHistory(val stack: List<String>, val index: Int)
-data class Clipboard(val op: String, val items: List<String>)
+data class Clipboard(val op: String, val items: List<String>) // items are absolute file paths
 
 data class FileManagerUiState(
     val tabs: List<Tab> = emptyList(),
@@ -55,13 +55,13 @@ data class FileManagerUiState(
     val accent: AccentColor = AccentColor.TEAL,
     val isLoading: Boolean = false,
 ) {
-    val currentTab: Tab       get() = tabs.find { it.id == activeTabId } ?: tabs.firstOrNull() ?: Tab(1, "/")
+    val currentTab: Tab           get() = tabs.find { it.id == activeTabId } ?: tabs.firstOrNull() ?: Tab(1, "/")
     val currentHistory: NavHistory get() = histories[activeTabId] ?: NavHistory(listOf(currentTab.path), 0)
-    val currentPath: String   get() = currentTab.path
-    val theme: PlasmaTheme    get() = buildTheme(themeMode, accent)
-    val canGoBack: Boolean    get() = currentHistory.index > 0
-    val canGoForward: Boolean get() = currentHistory.index < currentHistory.stack.size - 1
-    val canGoUp: Boolean      get() = File(currentPath).parent != null
+    val currentPath: String       get() = currentTab.path
+    val theme: PlasmaTheme        get() = buildTheme(themeMode, accent)
+    val canGoBack: Boolean        get() = currentHistory.index > 0
+    val canGoForward: Boolean     get() = currentHistory.index < currentHistory.stack.size - 1
+    val canGoUp: Boolean          get() = File(currentPath).parent != null
 }
 
 class FileManagerViewModel(application: Application) : AndroidViewModel(application) {
@@ -85,11 +85,11 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadVolumes()
     }
 
-    // ── Navigation ────────────────────────────────────────────────────────────
+    // ── Navigation ─────────────────────────────────────────────────────────────────────────────
 
     fun navigateTo(path: String) {
         val tabId = _state.value.activeTabId
-        val hist = _state.value.histories[tabId] ?: NavHistory(listOf(path), 0)
+        val hist  = _state.value.histories[tabId] ?: NavHistory(listOf(path), 0)
         val newStack = hist.stack.take(hist.index + 1) + path
         _state.update { s ->
             s.copy(
@@ -104,9 +104,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun goBack() {
         val s = _state.value
         if (!s.canGoBack) return
-        val hist = s.currentHistory
+        val hist   = s.currentHistory
         val newIdx = hist.index - 1
-        val path = hist.stack[newIdx]
+        val path   = hist.stack[newIdx]
         _state.update { it.copy(
             tabs      = it.tabs.map { t -> if (t.id == it.activeTabId) t.copy(path = path) else t },
             histories = it.histories + (it.activeTabId to hist.copy(index = newIdx)),
@@ -118,9 +118,9 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun goForward() {
         val s = _state.value
         if (!s.canGoForward) return
-        val hist = s.currentHistory
+        val hist   = s.currentHistory
         val newIdx = hist.index + 1
-        val path = hist.stack[newIdx]
+        val path   = hist.stack[newIdx]
         _state.update { it.copy(
             tabs      = it.tabs.map { t -> if (t.id == it.activeTabId) t.copy(path = path) else t },
             histories = it.histories + (it.activeTabId to hist.copy(index = newIdx)),
@@ -133,7 +133,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         File(_state.value.currentPath).parent?.let { navigateTo(it) }
     }
 
-    // ── Tabs ──────────────────────────────────────────────────────────────────
+    // ── Tabs ───────────────────────────────────────────────────────────────────────────────
 
     fun switchTab(id: Int) {
         if (_state.value.activeTabId == id) return
@@ -145,8 +145,8 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         val newId = (_state.value.tabs.maxOfOrNull { it.id } ?: 0) + 1
         _state.update { s ->
             s.copy(
-                tabs      = s.tabs + Tab(newId, path),
-                histories = s.histories + (newId to NavHistory(listOf(path), 0)),
+                tabs        = s.tabs + Tab(newId, path),
+                histories   = s.histories + (newId to NavHistory(listOf(path), 0)),
                 activeTabId = newId,
                 selectedItems = emptySet(),
             )
@@ -167,7 +167,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         if (s.activeTabId == id) loadCurrentFolder()
     }
 
-    // ── Content loading ───────────────────────────────────────────────────────
+    // ── Content loading ───────────────────────────────────────────────────────────────
 
     fun refresh() = loadCurrentFolder()
 
@@ -175,8 +175,8 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true) }
             val path = _state.value.currentPath
-            val raw = repo.listFiles(path)
-            val s = _state.value
+            val raw  = repo.listFiles(path)
+            val s    = _state.value
             val filtered = if (s.searchQuery.isNotEmpty())
                 raw.filter { it.name.contains(s.searchQuery, ignoreCase = true) }
             else raw
@@ -200,7 +200,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         return folders.s() + files.s()
     }
 
-    // ── Selection ─────────────────────────────────────────────────────────────
+    // ── Selection ─────────────────────────────────────────────────────────────────────────
 
     fun toggleSelection(name: String) {
         _state.update {
@@ -216,29 +216,31 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         it.copy(selectedItems = it.items.map { i -> i.name }.toSet())
     }
 
-    // ── Clipboard ─────────────────────────────────────────────────────────────
+    // ── Clipboard ───────────────────────────────────────────────────────────────────────────
 
     fun copySelected() {
-        val sel = _state.value.selectedItems.toList()
+        val currentPath = _state.value.currentPath
+        val sel = _state.value.selectedItems.map { File(currentPath, it).absolutePath }
         _state.update { it.copy(clipboard = Clipboard("copy", sel)) }
         showToast("Copied ${sel.size} item(s)")
         clearSelection()
     }
 
     fun cutSelected() {
-        val sel = _state.value.selectedItems.toList()
+        val currentPath = _state.value.currentPath
+        val sel = _state.value.selectedItems.map { File(currentPath, it).absolutePath }
         _state.update { it.copy(clipboard = Clipboard("cut", sel)) }
         showToast("Cut ${sel.size} item(s)")
         clearSelection()
     }
 
     fun pasteClipboard() {
-        val s = _state.value
+        val s    = _state.value
         val clip = s.clipboard ?: return
         viewModelScope.launch {
             val destDir = File(s.currentPath)
-            clip.items.forEach { name ->
-                val src = File(s.currentPath, name)
+            clip.items.forEach { fullPath ->
+                val src = File(fullPath)
                 if (clip.op == "copy") repo.copyFile(src, destDir)
                 else repo.moveFile(src, destDir)
             }
@@ -248,10 +250,10 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    // ── File operations ───────────────────────────────────────────────────────
+    // ── File operations ───────────────────────────────────────────────────────────────
 
     fun deleteSelected() {
-        val s = _state.value
+        val s       = _state.value
         val targets = s.selectedItems.map { File(s.currentPath, it) }
         viewModelScope.launch {
             repo.deleteFiles(targets)
@@ -279,7 +281,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    // ── Search ────────────────────────────────────────────────────────────────
+    // ── Search ──────────────────────────────────────────────────────────────────────────────
 
     fun setSearchOpen(open: Boolean) {
         _state.update { it.copy(isSearchOpen = open, searchQuery = if (open) it.searchQuery else "") }
@@ -291,7 +293,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         loadCurrentFolder()
     }
 
-    // ── UI state setters ──────────────────────────────────────────────────────
+    // ── UI state setters ───────────────────────────────────────────────────────────────
 
     fun openItem(item: FileItem) {
         if (item.kind == FileKind.FOLDER) navigateTo(item.file.absolutePath)
@@ -315,7 +317,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
     fun setShowRibbon(v: Boolean)     = _state.update { it.copy(showRibbon = v) }
     fun setShowFooter(v: Boolean)     = _state.update { it.copy(showFooter = v) }
 
-    // ── Toast ─────────────────────────────────────────────────────────────────
+    // ── Toast ──────────────────────────────────────────────────────────────────────────────
 
     fun showToast(message: String) {
         _state.update { it.copy(toast = message) }
@@ -325,7 +327,7 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────
+    // ── Helpers ────────────────────────────────────────────────────────────────────────────
 
     fun freeSpaceText(): String {
         return try {

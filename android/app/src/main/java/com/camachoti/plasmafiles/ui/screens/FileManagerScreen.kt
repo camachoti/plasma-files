@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.camachoti.plasmafiles.data.model.FileItem
 import com.camachoti.plasmafiles.ui.components.*
 import com.camachoti.plasmafiles.ui.viewmodel.*
 
@@ -29,7 +30,34 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
     val state by vm.state.collectAsState()
     val theme = state.theme
 
+    var showNewFolderDialog by remember { mutableStateOf(false) }
+    var renameTargetItem    by remember { mutableStateOf<FileItem?>(null) }
+    var showAnalyzer        by remember { mutableStateOf(false) }
+    val analyzerVm: StorageAnalyzerViewModel = viewModel()
+    val analyzerState by analyzerVm.state.collectAsState()
+
     RequestPermissions(onGranted = { vm.refresh() })
+
+    // Auto-start scan when opening analyzer for the first time
+    LaunchedEffect(showAnalyzer) {
+        if (showAnalyzer && analyzerState.result == null && !analyzerState.isScanning) {
+            analyzerVm.startScan(state.currentPath)
+        }
+    }
+
+    if (showAnalyzer) {
+        StorageAnalyzerScreen(
+            scanPath      = analyzerState.scanPath.ifEmpty { state.currentPath },
+            result        = analyzerState.result,
+            isScanning    = analyzerState.isScanning,
+            onStartScan   = { analyzerVm.startScan(state.currentPath) },
+            onDeleteFiles = { analyzerVm.deleteFiles(it) },
+            onNavigateTo  = { vm.navigateTo(it); showAnalyzer = false },
+            onBack        = { showAnalyzer = false },
+            theme         = theme,
+        )
+        return
+    }
 
     Box(
         modifier = Modifier
@@ -37,10 +65,8 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
             .background(theme.bg)
     ) {
         Column(Modifier.fillMaxSize()) {
-            // Status bar
             StatusBar(theme)
 
-            // Tab strip
             if (state.tabs.isNotEmpty()) {
                 TabStrip(
                     tabs        = state.tabs,
@@ -53,22 +79,20 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
                 )
             }
 
-            // Path bar
             PathBar(
-                path          = state.currentPath,
-                canGoBack     = state.canGoBack,
-                canGoForward  = state.canGoForward,
-                canGoUp       = state.canGoUp,
-                onBack        = { vm.goBack() },
-                onForward     = { vm.goForward() },
-                onUp          = { vm.goUp() },
-                onSearch      = { vm.setSearchOpen(!state.isSearchOpen) },
-                onMenu        = { vm.setDrawerOpen(true) },
-                onNavigateTo  = { vm.navigateTo(it) },
-                theme         = theme,
+                path         = state.currentPath,
+                canGoBack    = state.canGoBack,
+                canGoForward = state.canGoForward,
+                canGoUp      = state.canGoUp,
+                onBack       = { vm.goBack() },
+                onForward    = { vm.goForward() },
+                onUp         = { vm.goUp() },
+                onSearch     = { vm.setSearchOpen(!state.isSearchOpen) },
+                onMenu       = { vm.setDrawerOpen(true) },
+                onNavigateTo = { vm.navigateTo(it) },
+                theme        = theme,
             )
 
-            // Search bar
             if (state.isSearchOpen) {
                 SearchBar(
                     query         = state.searchQuery,
@@ -78,13 +102,18 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
                 )
             }
 
-            // Ribbon / Selection bar
             if (state.showRibbon) {
                 if (state.selectedItems.isEmpty()) {
                     Ribbon(
-                        items = buildRibbonItems(state, vm),
-                        dividers = listOf(1, 5, 9),
-                        theme = theme,
+                        items = buildRibbonItems(
+                            state       = state,
+                            vm          = vm,
+                            onNewFolder = { showNewFolderDialog = true },
+                            onRename    = { item -> renameTargetItem = item },
+                            onAnalyze   = { showAnalyzer = true },
+                        ),
+                        dividers = listOf(1, 5, 9, 10),
+                        theme    = theme,
                     )
                 } else {
                     SelectionBar(
@@ -100,7 +129,6 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
                 }
             }
 
-            // File body
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (state.view) {
                     ViewMode.DETAILS -> FileDetailsView(
@@ -115,7 +143,7 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
                         onToggleSelect = { vm.toggleSelection(it.name) },
                         onToggleAll    = { if (state.selectedItems.size == state.items.size) vm.clearSelection() else vm.selectAll() },
                         theme          = theme,
-                        emptyLabel     = if (state.searchQuery.isNotEmpty()) "No matches for “${state.searchQuery}”" else "This folder is empty",
+                        emptyLabel     = if (state.searchQuery.isNotEmpty()) "No matches for \"${state.searchQuery}\"" else "This folder is empty",
                     )
                     ViewMode.TILES -> FileTilesView(
                         items          = state.items,
@@ -124,21 +152,18 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
                         onOpen         = { vm.openItem(it) },
                         onToggleSelect = { vm.toggleSelection(it.name) },
                         theme          = theme,
-                        emptyLabel     = if (state.searchQuery.isNotEmpty()) "No matches for “${state.searchQuery}”" else "This folder is empty",
+                        emptyLabel     = if (state.searchQuery.isNotEmpty()) "No matches for \"${state.searchQuery}\"" else "This folder is empty",
                     )
                 }
-
-                // Loading indicator
                 if (state.isLoading) {
                     CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center).size(32.dp),
-                        color = theme.accent,
+                        modifier    = Modifier.align(Alignment.Center).size(32.dp),
+                        color       = theme.accent,
                         strokeWidth = 3.dp,
                     )
                 }
             }
 
-            // Status footer
             if (state.showFooter) {
                 HorizontalDivider(color = theme.line, thickness = 1.dp)
                 StatusFooter(
@@ -149,7 +174,6 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
                 )
             }
 
-            // Gesture nav pill
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -166,7 +190,6 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
             }
         }
 
-        // Side drawer (overlaid)
         if (state.isDrawerOpen) {
             SideDrawer(
                 open        = state.isDrawerOpen,
@@ -178,19 +201,17 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
             )
         }
 
-        // Properties bottom sheet
         state.propsItem?.let { item ->
             PropsBottomSheet(
-                item      = item,
-                onClose   = { vm.setPropsItem(null) },
-                onShare   = { vm.showToast("Share") },
-                onRename  = { vm.showToast("Rename") },
-                onDelete  = { vm.deleteSelected(); vm.setPropsItem(null) },
-                theme     = theme,
+                item     = item,
+                onClose  = { vm.setPropsItem(null) },
+                onShare  = { vm.showToast("Share") },
+                onRename = { renameTargetItem = item; vm.setPropsItem(null) },
+                onDelete = { vm.deleteSelected(); vm.setPropsItem(null) },
+                theme    = theme,
             )
         }
 
-        // Toast
         state.toast?.let { message ->
             Box(
                 modifier = Modifier
@@ -203,20 +224,91 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
             }
         }
     }
+
+    if (showNewFolderDialog) {
+        NewFolderDialog(
+            onConfirm = { name -> vm.createFolder(name); showNewFolderDialog = false },
+            onDismiss = { showNewFolderDialog = false },
+        )
+    }
+
+    renameTargetItem?.let { item ->
+        RenameDialog(
+            item      = item,
+            onConfirm = { newName -> vm.renameItem(item, newName); renameTargetItem = null },
+            onDismiss = { renameTargetItem = null },
+        )
+    }
 }
 
 @Composable
-private fun buildRibbonItems(state: FileManagerUiState, vm: FileManagerViewModel): List<RibbonItem> = listOf(
-    RibbonItem(Icons.Default.CreateNewFolder, "New")    { vm.showToast("New folder") },
+private fun NewFolderDialog(onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title            = { Text("New folder") },
+        text             = {
+            OutlinedTextField(
+                value         = name,
+                onValueChange = { name = it },
+                label         = { Text("Folder name") },
+                singleLine    = true,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { if (name.isNotBlank()) onConfirm(name.trim()) }, enabled = name.isNotBlank()) {
+                Text("Create")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun RenameDialog(item: FileItem, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+    var name by remember { mutableStateOf(item.name) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title            = { Text("Rename") },
+        text             = {
+            OutlinedTextField(
+                value         = name,
+                onValueChange = { name = it },
+                label         = { Text("Name") },
+                singleLine    = true,
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick  = { if (name.isNotBlank() && name != item.name) onConfirm(name.trim()) },
+                enabled  = name.isNotBlank() && name != item.name,
+            ) { Text("Rename") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@Composable
+private fun buildRibbonItems(
+    state: FileManagerUiState,
+    vm: FileManagerViewModel,
+    onNewFolder: () -> Unit,
+    onRename: (FileItem) -> Unit,
+    onAnalyze: () -> Unit,
+): List<RibbonItem> = listOf(
+    RibbonItem(Icons.Default.CreateNewFolder, "New")    { onNewFolder() },
     RibbonItem(Icons.Default.ContentCut,     "Cut",    state.selectedItems.isNotEmpty()) { vm.cutSelected() },
     RibbonItem(Icons.Default.ContentCopy,    "Copy",   state.selectedItems.isNotEmpty()) { vm.copySelected() },
     RibbonItem(Icons.Default.ContentPaste,   "Paste",  state.clipboard != null) { vm.pasteClipboard() },
-    RibbonItem(Icons.Default.Edit,           "Rename", state.selectedItems.size == 1) { vm.showToast("Rename") },
+    RibbonItem(Icons.Default.Edit,           "Rename", state.selectedItems.size == 1) {
+        state.items.find { it.name in state.selectedItems }?.let { onRename(it) }
+    },
     RibbonItem(Icons.Default.Share,          "Share",  state.selectedItems.isNotEmpty()) { vm.showToast("Share") },
     RibbonItem(Icons.Default.Delete,         "Delete", state.selectedItems.isNotEmpty(), warn = state.selectedItems.isNotEmpty()) { vm.deleteSelected() },
     RibbonItem(Icons.Default.Sort,           "Sort")   { vm.setSortKey(state.sortKey) },
     RibbonItem(Icons.Default.ViewModule,     "View")   { vm.setView(if (state.view == ViewMode.DETAILS) ViewMode.TILES else ViewMode.DETAILS) },
     RibbonItem(Icons.Default.Info,           "Details",state.selectedItems.isNotEmpty()) { state.items.find { it.name in state.selectedItems }?.let { vm.setPropsItem(it) } },
+    RibbonItem(Icons.Default.Storage,        "Analyze") { onAnalyze() },
 )
 
 @Composable
