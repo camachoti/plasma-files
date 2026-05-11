@@ -238,15 +238,24 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
         val s    = _state.value
         val clip = s.clipboard ?: return
         viewModelScope.launch {
-            val destDir = File(s.currentPath)
+            val destDir    = File(s.currentPath)
+            val failedPaths = mutableListOf<String>()
             clip.items.forEach { fullPath ->
                 val src = File(fullPath)
-                if (clip.op == "copy") repo.copyFile(src, destDir)
-                else repo.moveFile(src, destDir)
+                val ok  = if (clip.op == "copy") repo.copyFile(src, destDir)
+                          else repo.moveFile(src, destDir)
+                if (!ok) failedPaths.add(fullPath)
             }
-            _state.update { it.copy(clipboard = null) }
+            val successCount = clip.items.size - failedPaths.size
+            if (failedPaths.isEmpty()) {
+                _state.update { it.copy(clipboard = null) }
+                showToast("Pasted ${clip.items.size} item(s)")
+            } else {
+                _state.update { it.copy(clipboard = clip.copy(items = failedPaths)) }
+                if (successCount > 0) showToast("Pasted $successCount item(s); ${failedPaths.size} failed")
+                else showToast("Failed to paste ${failedPaths.size} item(s)")
+            }
             loadCurrentFolder()
-            showToast("Pasted ${clip.items.size} item(s)")
         }
     }
 
@@ -260,6 +269,14 @@ class FileManagerViewModel(application: Application) : AndroidViewModel(applicat
             _state.update { it.copy(selectedItems = emptySet()) }
             loadCurrentFolder()
             showToast("Deleted ${targets.size} item(s)")
+        }
+    }
+
+    fun deleteItem(item: FileItem) {
+        viewModelScope.launch {
+            repo.deleteFiles(listOf(item.file))
+            loadCurrentFolder()
+            showToast("Deleted “${item.name}”")
         }
     }
 
