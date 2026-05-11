@@ -207,7 +207,7 @@ fun FileManagerScreen(vm: FileManagerViewModel = viewModel()) {
                 onClose  = { vm.setPropsItem(null) },
                 onShare  = { vm.showToast("Share") },
                 onRename = { renameTargetItem = item; vm.setPropsItem(null) },
-                onDelete = { vm.deleteSelected(); vm.setPropsItem(null) },
+                onDelete = { vm.deleteItem(item); vm.setPropsItem(null) },
                 theme    = theme,
             )
         }
